@@ -1,0 +1,126 @@
+[build-system]
+# setuptools >= 77 for PEP 639 (`license` and `license-files`). cffi >= 2.0
+# provides the `cffi_modules` setup() keyword and the API-mode compiler, and
+# auto-manages Py_LIMITED_API (abi3 on normal CPython, off on free-threaded
+# below 3.15, abi3t on 3.15 and later). The floor matches the runtime dep so
+# the building and importing `_cffi_backend` agree.
+requires = ["setuptools>=77", "cffi>=2.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "falcon-det1024"
+version = "0.0.0"
+description = "Python bindings for the Algorand deterministic Falcon (det1024) post-quantum signature scheme"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Luca Martini" }]
+keywords = ["falcon", "post-quantum", "signature", "cryptography", "algorand", "det1024"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: C",
+    "Topic :: Security :: Cryptography",
+    "Operating System :: OS Independent",
+    "Typing :: Typed",
+]
+# cffi is a runtime dependency: the compiled module imports _cffi_backend, and
+# cffi's backend is version-specific (abi3 collapses the build matrix, but cffi
+# stays a per-Python runtime dep that pip resolves). The floor matches the build
+# floor above.
+dependencies = ["cffi>=2.0.0"]
+
+[project.urls]
+Homepage = "https://github.com/mrcointreau/falcon-det1024"
+Repository = "https://github.com/mrcointreau/falcon-det1024"
+Issues = "https://github.com/mrcointreau/falcon-det1024/issues"
+
+# --------------------------------------------------------------------------- #
+# setuptools (src layout; cffi appends the compiled falcon_det1024._falcon extension
+# via setup.py's cffi_modules)
+# --------------------------------------------------------------------------- #
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+falcon_det1024 = ["py.typed", "*.pyi"]
+
+# --------------------------------------------------------------------------- #
+# Dev dependencies (PEP 735 group, uv-native)
+# --------------------------------------------------------------------------- #
+[dependency-groups]
+# Only what is needed to develop and test the library on every supported Python
+# (>=3.9). Release and CI tooling runs via GitHub Actions and would otherwise
+# constrain requires-python (cibuildwheel needs >=3.11): build wheels with the
+# pypa/cibuildwheel action (or `uvx cibuildwheel` locally) and cut releases with
+# the python-semantic-release action (or `uvx python-semantic-release` locally).
+dev = [
+    "cffi>=2.0.0",
+    "pytest>=8.0",
+    "mypy>=1.10",
+]
+
+# --------------------------------------------------------------------------- #
+# cibuildwheel: one abi3 wheel per platform.
+# --------------------------------------------------------------------------- #
+[tool.cibuildwheel]
+# Build only the lowest supported CPython, which yields a single cp39-abi3 wheel
+# per platform (the cibuildwheel 4.x floor is cp39). This selector also excludes
+# the free-threaded cp314t-* builds that 4.x produces by default; adding
+# "cp314t-*" here also ships free-threaded wheels, which the setup.py tag logic
+# supports. Repair (auditwheel/delocate/delvewheel) and abi3audit run
+# automatically after each build.
+build = "cp39-*"
+build-frontend = "build"
+# The vendored Falcon sources come from a git submodule, provided by
+# `actions/checkout` with `submodules: recursive` (the checked-out files are
+# mounted into the build container). A `before-all` git command is avoided
+# because it fails on Linux containers with "dubious ownership".
+test-requires = "pytest"
+# {project} is the checked-out repo (submodule present), so the KAT test can
+# read vendor/falcon/tests/test_deterministic_kat.h.
+test-command = "pytest {project}/tests"
+
+# --------------------------------------------------------------------------- #
+# python-semantic-release (v10): conventional commits drive the version bump,
+# tag, changelog, and GitHub release. It performs no build (cibuildwheel builds
+# the wheels) and does not publish to PyPI (gh-action-pypi-publish does, via
+# OIDC).
+# --------------------------------------------------------------------------- #
+[tool.semantic_release]
+tag_format = "v{version}"
+commit_parser = "conventional"
+# Pre-1.0: without this, the first managed release jumps to 1.0.0.
+allow_zero_version = true
+# Update the PEP 621 version field with a TOML-aware writer.
+version_toml = ["pyproject.toml:project.version"]
+# Update the __version__ string in the package with a regex replace.
+version_variables = ["src/falcon_det1024/__init__.py:__version__"]
+# build_command is omitted, so python-semantic-release runs no build.
+
+[tool.semantic_release.remote]
+type = "github"
+
+# --------------------------------------------------------------------------- #
+# pytest / mypy
+# --------------------------------------------------------------------------- #
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.mypy]
+# Lowest version mypy can target. The code stays 3.9-compatible at runtime via
+# `from __future__ import annotations`.
+python_version = "3.10"
+strict = true
+files = ["src/falcon_det1024"]
+# _build.py is a build-time script (it imports cffi's FFI directly and needs no
+# runtime type checking); _falcon is the compiled extension, typed via
+# _falcon.pyi.
+exclude = ['src/falcon_det1024/_build\.py$']

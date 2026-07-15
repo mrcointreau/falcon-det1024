@@ -1,0 +1,18 @@
+# The compiled extension is built from the vendored Falcon sources, so the
+# sdist must carry them. setuptools auto-includes the .c files listed as
+# Extension sources but not the headers referenced via include_dirs
+# (falcon.h, deterministic.h, config.h, inner.h, fpr.h), so they are listed
+# here to let a build from the sdist compile.
+include vendor/falcon/*.c
+include vendor/falcon/*.h
+
+include LICENSE
+include README.md
+
+# Keep the cffi build script in the sdist.
+include src/falcon_det1024/_build.py
+
+# Exclude build and VCS artifacts.
+global-exclude *.pyc
+prune vendor/falcon/.git
+prune vendor/falcon/tests

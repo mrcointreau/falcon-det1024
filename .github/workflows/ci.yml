@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least privilege by default.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (py${{ matrix.python-version }} / ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Lowest supported (abi3 floor) and latest, across the three platforms.
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive # vendored Falcon C sources
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: Sync (build the cffi extension and install dev deps)
+        run: uv sync
+
+      - name: Run tests (roundtrip, determinism, tamper, CT, KATs)
+        run: uv run pytest -q
+
+  typecheck:
+    name: mypy (strict)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync
+      - run: uv run mypy
+
+  # Smoke-build the abi3 wheel on one platform so packaging regressions surface
+  # on PRs. The full matrix and publish live in release.yml.
+  wheel-smoke:
+    name: cibuildwheel smoke (linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Build and test the abi3 wheel
+        uses: pypa/cibuildwheel@v4.1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-smoke-linux
+          path: ./wheelhouse/*.whl

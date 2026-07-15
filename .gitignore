@@ -1,0 +1,26 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+
+# cffi-generated + compiled extension artifacts
+src/falcon_det1024/_falcon.c
+*.so
+*.pyd
+*.dylib
+*.o
+
+# Build / packaging
+build/
+dist/
+wheelhouse/
+*.egg-info/
+.eggs/
+
+# Environments
+.venv/
+venv/
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

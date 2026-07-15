@@ -1,0 +1,123 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # 1. Decide the next version from conventional commits, bump pyproject and
+  #    __version__, commit, tag, and create the GitHub Release. A GitHub App
+  #    token (secrets.BOT_ID / secrets.BOT_SK) performs the writes, so the
+  #    built-in GITHUB_TOKEN stays read-only and Actions needs no write
+  #    permission.
+  release:
+    name: Semantic Release
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-${{ github.ref_name }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    outputs:
+      released: ${{ steps.release.outputs.released }}
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - name: Generate a GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_ID }}
+          private-key: ${{ secrets.BOT_SK }}
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: true # push the bump commit/tag with the App token
+
+      - name: Python Semantic Release
+        id: release
+        uses: python-semantic-release/python-semantic-release@v10.6.1
+        with:
+          github_token: ${{ steps.app-token.outputs.token }}
+          git_committer_name: "github-actions"
+          git_committer_email: "actions@users.noreply.github.com"
+          build: "false" # the wheels and sdist are built by later jobs
+
+      - name: Publish notes/assets to the GitHub Release
+        uses: python-semantic-release/publish-action@v10.6.1
+        if: steps.release.outputs.released == 'true'
+        with:
+          github_token: ${{ steps.app-token.outputs.token }}
+          tag: ${{ steps.release.outputs.tag }}
+
+  # 2. Build one abi3 wheel per platform (only if a release was cut).
+  build_wheels:
+    name: Wheels / ${{ matrix.os }}
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest # linux x86_64 (manylinux and musllinux)
+          - ubuntu-24.04-arm # linux aarch64
+          - windows-latest # win amd64
+          - macos-15-intel # macOS x86_64
+          - macos-latest # macOS arm64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.tag }} # the freshly-tagged commit
+          submodules: recursive
+          persist-credentials: false
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v4.1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: ./wheelhouse/*.whl
+
+  # 3. Build the sdist (buildable from source thanks to MANIFEST.in).
+  build_sdist:
+    name: sdist
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+      - run: uv build --sdist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  # 4. Publish everything to Test PyPI via OIDC trusted publishing (no token).
+  publish:
+    name: Publish to Test PyPI
+    needs: [release, build_wheels, build_sdist]
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    environment: testpypi # configure this as the Test PyPI trusted-publisher environment
+    permissions:
+      id-token: write # OIDC
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: dist
+          print-hash: true
