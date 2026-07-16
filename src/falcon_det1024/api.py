@@ -2,15 +2,20 @@
 
 The primary path is compressed-format sign/verify, which is deterministic:
 the same `(private key, message)` always yields a byte-identical signature.
-CT format is a fixed-length serialization used for hashing and Merkle trees.
+
+Both `sign` and `verify` operate on the raw `message` bytes with no domain
+separation. To reproduce a signature that an application (e.g. go-algorand)
+produced over a structured object, sign the digest that application hashes to,
+not the object itself.
+
+The C-mirroring low-level surface (CT conversion, coefficient helpers, the raw
+`*_compressed` / `*_ct` functions) lives in `falcon_det1024.bindings`.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-
-from . import _core
-from .constants import CURRENT_SALT_VERSION, PRIVATE_KEY_SIZE, PUBLIC_KEY_SIZE
+from . import bindings
+from .constants import PRIVATE_KEY_SIZE, PUBLIC_KEY_SIZE
 from .exceptions import InvalidSignature
 
 
@@ -20,7 +25,7 @@ class FalconVerifier:
     __slots__ = ("_public_key",)
 
     def __init__(self, public_key: bytes) -> None:
-        public_key = _core._as_bytes("public_key", public_key)
+        public_key = bindings._as_bytes("public_key", public_key)
         if len(public_key) != PUBLIC_KEY_SIZE:
             raise ValueError(
                 f"public_key must be exactly {PUBLIC_KEY_SIZE} bytes, "
@@ -34,11 +39,12 @@ class FalconVerifier:
         return self._public_key
 
     def verify(self, message: bytes, signature: bytes) -> None:
-        """Verify `signature` over `message`.
+        """Verify `signature` over the raw `message` bytes.
 
-        Return `None` on success and raise `InvalidSignature` on failure.
+        Return `None` on success and raise `InvalidSignature` on failure. No
+        domain separation is applied; `message` is verified verbatim.
         """
-        _core.verify_compressed(self._public_key, message, signature)
+        bindings.verify_compressed(self._public_key, message, signature)
 
     def is_valid(self, message: bytes, signature: bytes) -> bool:
         """Return `True` if `signature` is valid for `message`."""
@@ -66,8 +72,8 @@ class FalconSigner:
     __slots__ = ("_private_key", "_public_key")
 
     def __init__(self, private_key: bytes, public_key: bytes) -> None:
-        private_key = _core._as_bytes("private_key", private_key)
-        public_key = _core._as_bytes("public_key", public_key)
+        private_key = bindings._as_bytes("private_key", private_key)
+        public_key = bindings._as_bytes("public_key", public_key)
         if len(private_key) != PRIVATE_KEY_SIZE:
             raise ValueError(
                 f"private_key must be exactly {PRIVATE_KEY_SIZE} bytes, "
@@ -90,11 +96,11 @@ class FalconSigner:
         deterministically derives the keypair.
         """
         if seed is None:
-            private_key, public_key = _core.keygen_from_system()
+            private_key, public_key = bindings.keygen_from_system()
         else:
             # keygen_from_seed normalizes bytes-like input and enforces the
             # exact SEED_SIZE, raising ValueError on a wrong length.
-            private_key, public_key = _core.keygen_from_seed(seed)
+            private_key, public_key = bindings.keygen_from_seed(seed)
         return cls(private_key, public_key)
 
     @property
@@ -108,8 +114,13 @@ class FalconSigner:
         return self._public_key
 
     def sign(self, message: bytes) -> bytes:
-        """Deterministically sign `message` and return a compressed signature."""
-        return _core.sign_compressed(self._private_key, message)
+        """Deterministically sign raw `message` bytes into a compressed signature.
+
+        No domain separation is applied; `message` is signed verbatim. To match a
+        signature an application made over a structured object, sign the digest
+        that application hashes to, not the object itself.
+        """
+        return bindings.sign_compressed(self._private_key, message)
 
     def verifying_key(self) -> FalconVerifier:
         """Return a `FalconVerifier` for this signer's public key."""
@@ -117,48 +128,3 @@ class FalconSigner:
 
     def __repr__(self) -> str:
         return f"FalconSigner(public_key=<{PUBLIC_KEY_SIZE} bytes>)"
-
-
-# --------------------------------------------------------------------------- #
-# Module-level helpers
-# --------------------------------------------------------------------------- #
-def verify_falcon1024(message: bytes, public_key: bytes, signature: bytes) -> None:
-    """Verify a compressed det1024 signature and raise `InvalidSignature` on failure."""
-    _core.verify_compressed(public_key, message, signature)
-
-
-def compressed_to_ct(signature: bytes) -> bytes:
-    """Convert a compressed signature to fixed-length CT format (1538 bytes)."""
-    return _core.convert_compressed_to_ct(signature)
-
-
-def salt_version(signature: bytes) -> int:
-    """Return the salt-version byte of a signature (compressed or CT)."""
-    return _core.get_salt_version(signature)
-
-
-# --------------------------------------------------------------------------- #
-# Advanced coefficient helpers
-# --------------------------------------------------------------------------- #
-def pubkey_coeffs(public_key: bytes) -> list[int]:
-    """Unpack a public key into its 1024 ring-element coefficients (h)."""
-    return _core.pubkey_coeffs(public_key)
-
-
-def hash_to_point_coeffs(
-    data: bytes, salt_version: int = CURRENT_SALT_VERSION
-) -> list[int]:
-    """Hash `data` (with the fixed versioned salt) to 1024 coefficients (c)."""
-    return _core.hash_to_point_coeffs(data, salt_version)
-
-
-def s2_coeffs(ct_signature: bytes) -> list[int]:
-    """Unpack the 1024 s2 coefficients from a CT-format signature."""
-    return _core.s2_coeffs(ct_signature)
-
-
-def s1_coeffs(
-    h: Sequence[int], c: Sequence[int], s2: Sequence[int]
-) -> list[int]:
-    """Compute the 1024 coefficients of s1 = c - s2*h, validating shortness."""
-    return _core.s1_coeffs(h, c, s2)

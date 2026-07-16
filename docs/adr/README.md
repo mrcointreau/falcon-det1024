@@ -6,3 +6,4 @@ Records of the significant, alternative-bearing decisions for falcon-det1024, in
 - [0002. Ship a single abi3 wheel per platform](0002-abi3-single-wheel.md)
 - [0003. Defer free-threaded wheels](0003-defer-free-threaded-wheels.md)
 - [0004. Use cibuildwheel instead of a hand-rolled matrix](0004-cibuildwheel-over-handrolled-matrix.md)
+- [0005. Set the minimum supported Python to 3.10](0005-minimum-python-3-10.md)

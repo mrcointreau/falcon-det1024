@@ -37,44 +37,44 @@ def test_signer_rejects_wrong_key_lengths(signer: fp.FalconSigner) -> None:
         fp.FalconSigner(signer.private_key, bytes(1792))
 
 
-def test_verify_falcon1024_rejects_wrong_public_key_length(
+def test_verify_compressed_rejects_wrong_public_key_length(
     signer: fp.FalconSigner,
 ) -> None:
     sig = signer.sign(b"x")
     with pytest.raises(ValueError):
-        fp.verify_falcon1024(b"x", bytes(10), sig)
+        fp.bindings.verify_compressed(bytes(10), b"x", sig)
 
 
-def test_salt_version_requires_two_bytes() -> None:
+def test_get_salt_version_requires_two_bytes() -> None:
     with pytest.raises(ValueError):
-        fp.salt_version(b"\x00")
+        fp.bindings.get_salt_version(b"\x00")
 
 
 def test_pubkey_coeffs_rejects_wrong_length() -> None:
     with pytest.raises(ValueError):
-        fp.pubkey_coeffs(bytes(10))
+        fp.bindings.pubkey_coeffs(bytes(10))
 
 
 def test_s1_coeffs_rejects_wrong_vector_length(signer: fp.FalconSigner) -> None:
-    good = fp.pubkey_coeffs(signer.public_key)
+    good = fp.bindings.pubkey_coeffs(signer.public_key)
     with pytest.raises(ValueError):
-        fp.s1_coeffs(good[:-1], good, good)
+        fp.bindings.s1_coeffs(good[:-1], good, good)
 
 
 def test_s1_coeffs_rejects_out_of_range_coefficient(signer: fp.FalconSigner) -> None:
-    h = fp.pubkey_coeffs(signer.public_key)
-    c = fp.hash_to_point_coeffs(b"x")
+    h = fp.bindings.pubkey_coeffs(signer.public_key)
+    c = fp.bindings.hash_to_point_coeffs(b"x")
     s2 = [0] * fp.N
     # An out-of-range uint16 (h) raises ValueError, not OverflowError.
     with pytest.raises(ValueError):
-        fp.s1_coeffs([70000, *h[1:]], c, s2)
+        fp.bindings.s1_coeffs([70000, *h[1:]], c, s2)
     # out-of-range int16 (s2)
     with pytest.raises(ValueError):
-        fp.s1_coeffs(h, c, [40000, *s2[1:]])
+        fp.bindings.s1_coeffs(h, c, [40000, *s2[1:]])
 
 
 def test_hash_to_point_coeffs_rejects_bad_salt_version() -> None:
     with pytest.raises(ValueError):
-        fp.hash_to_point_coeffs(b"x", salt_version=256)
+        fp.bindings.hash_to_point_coeffs(b"x", salt_version=256)
     with pytest.raises(ValueError):
-        fp.hash_to_point_coeffs(b"x", salt_version=-1)
+        fp.bindings.hash_to_point_coeffs(b"x", salt_version=-1)

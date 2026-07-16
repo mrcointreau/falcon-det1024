@@ -2,7 +2,7 @@
 
 cffi generates the real module from `_build.py`. Its `ffi` and `lib` objects
 are dynamic, so they are typed `Any`; the type-checked wrappers live in
-`_core.py`.
+`bindings.py`.
 """
 
 from typing import Any

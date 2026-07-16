@@ -22,7 +22,7 @@ jobs:
       matrix:
         # Lowest supported (abi3 floor) and latest, across the three platforms.
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.9", "3.13"]
+        python-version: ["3.10", "3.13"]
     steps:
       - uses: actions/checkout@v4
         with:

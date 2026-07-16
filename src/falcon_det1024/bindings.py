@@ -1,4 +1,10 @@
-"""Low-level, type-checked wrappers over the det1024 C functions.
+"""Low-level bindings: thin, type-checked wrappers over the det1024 C API.
+
+This is the public low-level layer (in the spirit of `nacl.bindings`). Each
+function maps 1:1 to a `falcon_det1024_*` C function, keeping the C name with
+the `falcon_det1024_` prefix dropped, and operates on raw bytes with no domain
+separation. The ergonomic `FalconSigner` / `FalconVerifier` classes are built
+on top of these.
 
 Every function enforces exact input lengths before calling into C. Several
 det1024 functions take no length argument for their fixed-size buffers and do
@@ -17,11 +23,26 @@ from ._lib import err_name, ffi, lib
 from .constants import (
     COMPRESSED_SIG_MAX_SIZE,
     CT_SIGNATURE_SIZE,
+    CURRENT_SALT_VERSION,
     N,
     PRIVATE_KEY_SIZE,
     PUBLIC_KEY_SIZE,
     SEED_SIZE,
 )
+
+__all__ = [
+    "keygen_from_seed",
+    "keygen_from_system",
+    "sign_compressed",
+    "verify_compressed",
+    "verify_ct",
+    "convert_compressed_to_ct",
+    "get_salt_version",
+    "pubkey_coeffs",
+    "hash_to_point_coeffs",
+    "s2_coeffs",
+    "s1_coeffs",
+]
 
 
 def _as_bytes(name: str, value: object) -> bytes:
@@ -176,7 +197,9 @@ def pubkey_coeffs(public_key: bytes) -> list[int]:
     return [int(x) for x in h]
 
 
-def hash_to_point_coeffs(data: bytes, salt_version: int) -> list[int]:
+def hash_to_point_coeffs(
+    data: bytes, salt_version: int = CURRENT_SALT_VERSION
+) -> list[int]:
     """Hash `data` (with the fixed versioned salt) to N ring coefficients (c)."""
     data = _as_bytes("data", data)
     if not 0 <= salt_version <= 255:

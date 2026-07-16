@@ -19,16 +19,16 @@ def test_sign_verify_roundtrip(
     assert isinstance(sig, bytes)
     assert 2 <= len(sig) <= fp.COMPRESSED_SIG_MAX_SIZE
     assert sig[0] == (0x3A | 0x80)  # det1024 compressed header
-    assert fp.salt_version(sig) == fp.CURRENT_SALT_VERSION
+    assert fp.bindings.get_salt_version(sig) == fp.CURRENT_SALT_VERSION
     # verify() returns None on success (does not raise)
     assert verifier.verify(message, sig) is None
     assert verifier.is_valid(message, sig) is True
 
 
 @pytest.mark.parametrize("message", MESSAGES)
-def test_module_level_verify(signer: fp.FalconSigner, message: bytes) -> None:
+def test_bindings_verify_compressed(signer: fp.FalconSigner, message: bytes) -> None:
     sig = signer.sign(message)
-    assert fp.verify_falcon1024(message, signer.public_key, sig) is None
+    assert fp.bindings.verify_compressed(signer.public_key, message, sig) is None
 
 
 def test_verifier_from_public_key(signer: fp.FalconSigner) -> None:
