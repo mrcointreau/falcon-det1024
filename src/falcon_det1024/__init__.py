@@ -1,6 +1,11 @@
 """falcon-det1024: Python bindings for the Algorand deterministic Falcon (det1024)
 post-quantum signature scheme.
 
+The top level is the ergonomic API: `FalconSigner`, `FalconVerifier`, the size
+constants, and the exception hierarchy. The C-mirroring low-level surface (raw
+`*_compressed` / `*_ct` functions, CT conversion, salt-version and coefficient
+helpers) lives under `falcon_det1024.bindings`, in the spirit of `nacl.bindings`.
+
 Example
 -------
 >>> from falcon_det1024 import FalconSigner
@@ -11,17 +16,8 @@ Example
 
 from __future__ import annotations
 
-from .api import (
-    FalconSigner,
-    FalconVerifier,
-    compressed_to_ct,
-    hash_to_point_coeffs,
-    pubkey_coeffs,
-    s1_coeffs,
-    s2_coeffs,
-    salt_version,
-    verify_falcon1024,
-)
+from . import bindings
+from .api import FalconSigner, FalconVerifier
 from .constants import (
     COMPRESSED_SIG_MAX_SIZE,
     CT_SIGNATURE_SIZE,
@@ -46,18 +42,11 @@ __version__ = "0.1.0"
 __all__ = [
     # version
     "__version__",
+    # low-level bindings
+    "bindings",
     # classes
     "FalconSigner",
     "FalconVerifier",
-    # module-level functions
-    "verify_falcon1024",
-    "compressed_to_ct",
-    "salt_version",
-    # advanced coefficient helpers
-    "pubkey_coeffs",
-    "hash_to_point_coeffs",
-    "s2_coeffs",
-    "s1_coeffs",
     # constants
     "PUBLIC_KEY_SIZE",
     "PRIVATE_KEY_SIZE",

@@ -11,7 +11,7 @@ The procedure follows `vendor/falcon/tests/test_deterministic.c`. For each index
     string `"msg-%04d" % i`;
   - the keypair is generated from a SHAKE256 PRNG seeded with `"key-%04d" % i`;
   - `sign_compressed` must reproduce `FALCON_DET1024_KAT[i]`;
-  - `compressed_to_ct` must reproduce `FALCON_DET1024_KAT_CT[i]`.
+  - `bindings.convert_compressed_to_ct` must reproduce `FALCON_DET1024_KAT_CT[i]`.
 
 The KAT seeds are 8 bytes (not the public 32-byte seed), so keygen and message
 generation use the low-level `_falcon` shake primitives directly.
@@ -125,5 +125,5 @@ def test_kat_ct_signatures() -> None:
         message = _message(i)
         priv, pub = _keypair(i)
         sig = fp.FalconSigner(priv, pub).sign(message)
-        ct = fp.compressed_to_ct(sig)
+        ct = fp.bindings.convert_compressed_to_ct(sig)
         assert ct.hex() == _KAT_CT[i], f"CT KAT mismatch at index {i}"

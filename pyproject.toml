@@ -12,7 +12,7 @@ name = "falcon-det1024"
 version = "0.1.0"
 description = "Python bindings for the Algorand deterministic Falcon (det1024) post-quantum signature scheme"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Luca Martini" }]
@@ -56,7 +56,7 @@ falcon_det1024 = ["py.typed", "*.pyi"]
 # --------------------------------------------------------------------------- #
 [dependency-groups]
 # Only what is needed to develop and test the library on every supported Python
-# (>=3.9). Release and CI tooling runs via GitHub Actions and would otherwise
+# (>=3.10). Release and CI tooling runs via GitHub Actions and would otherwise
 # constrain requires-python (cibuildwheel needs >=3.11): build wheels with the
 # pypa/cibuildwheel action (or `uvx cibuildwheel` locally) and cut releases with
 # the python-semantic-release action (or `uvx python-semantic-release` locally).
@@ -70,13 +70,14 @@ dev = [
 # cibuildwheel: one abi3 wheel per platform.
 # --------------------------------------------------------------------------- #
 [tool.cibuildwheel]
-# Build only the lowest supported CPython, which yields a single cp39-abi3 wheel
-# per platform (the cibuildwheel 4.x floor is cp39). This selector also excludes
-# the free-threaded cp314t-* builds that 4.x produces by default; adding
-# "cp314t-*" here also ships free-threaded wheels, which the setup.py tag logic
-# supports. Repair (auditwheel/delocate/delvewheel) and abi3audit run
-# automatically after each build.
-build = "cp39-*"
+# Build only the lowest supported CPython, which yields a single cp310-abi3
+# wheel per platform, matching the `requires-python` floor and the setup.py
+# wheel tag. This selector also excludes the free-threaded cp314t-* builds that
+# 4.x produces by default; adding "cp314t-*" here also ships free-threaded
+# wheels, which the setup.py tag logic supports. Repair
+# (auditwheel/delocate/delvewheel) and abi3audit run automatically after each
+# build.
+build = "cp310-*"
 build-frontend = "build"
 # The vendored Falcon sources come from a git submodule, provided by
 # `actions/checkout` with `submodules: recursive` (the checked-out files are
@@ -98,6 +99,10 @@ tag_format = "v{version}"
 commit_parser = "conventional"
 # Pre-1.0: without this, the first managed release jumps to 1.0.0.
 allow_zero_version = true
+# Keep breaking changes on the minor digit while the major is 0. Without this a
+# breaking change leaves 0.x for 1.0.0, which `allow_zero_version` alone does
+# not prevent.
+major_on_zero = false
 # Update the PEP 621 version field with a TOML-aware writer.
 version_toml = ["pyproject.toml:project.version"]
 # Update the __version__ string in the package with a regex replace.
@@ -115,8 +120,7 @@ testpaths = ["tests"]
 addopts = "-ra"
 
 [tool.mypy]
-# Lowest version mypy can target. The code stays 3.9-compatible at runtime via
-# `from __future__ import annotations`.
+# Matches the `requires-python` floor.
 python_version = "3.10"
 strict = true
 files = ["src/falcon_det1024"]

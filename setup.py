@@ -12,7 +12,7 @@ Almost all metadata lives in `pyproject.toml`. This file exists only to:
    raises if `py_limited_api` is set while building on a free-threaded
    (`Py_GIL_DISABLED`) interpreter, which has no stable ABI. Those interpreters
    get a normal, version-specific (full-tagged) wheel; every other build gets a
-   single `cp39-abi3` wheel per platform.
+   single `cp310-abi3` wheel per platform.
 """
 
 import sysconfig
@@ -21,8 +21,8 @@ from setuptools import setup
 
 options = {}
 if not sysconfig.get_config_var("Py_GIL_DISABLED"):
-    # Match the Py_LIMITED_API floor: build on cp39, tag as cp39-abi3.
-    options["bdist_wheel"] = {"py_limited_api": "cp39"}
+    # Match the Py_LIMITED_API floor: build on cp310, tag as cp310-abi3.
+    options["bdist_wheel"] = {"py_limited_api": "cp310"}
 
 setup(
     cffi_modules=["src/falcon_det1024/_build.py:ffibuilder"],

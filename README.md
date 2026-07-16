@@ -5,7 +5,7 @@ Python bindings for the Algorand deterministic **Falcon** (`det1024`) post-quant
 - **Deterministic**: the same `(private key, message)` always produces a byte-identical signature (no nonce). This is what Algorand consensus requires.
 - **Bit-exact**: compiled with the emulated floating-point, no-SIMD configuration, so signatures are identical across compilers and CPU architectures. This is locked in by the upstream known-answer tests (KATs).
 - **Typed**: ships `py.typed`, and the public surface is fully annotated.
-- **abi3 wheels**: one wheel per platform works on CPython 3.9+.
+- **abi3 wheels**: one wheel per platform works on CPython 3.10+.
 
 ## Installation
 
@@ -13,12 +13,12 @@ Python bindings for the Algorand deterministic **Falcon** (`det1024`) post-quant
 pip install falcon-det1024
 ```
 
-Prebuilt `cp39-abi3` wheels are published for Linux (x86_64/aarch64, manylinux and musllinux), macOS (x86_64/arm64), and Windows (amd64). The only runtime dependency is `cffi`.
+Prebuilt `cp310-abi3` wheels are published for Linux (x86_64/aarch64, manylinux and musllinux), macOS (x86_64/arm64), and Windows (amd64). The only runtime dependency is `cffi`.
 
 ## Quickstart
 
 ```python
-from falcon_det1024 import FalconSigner, verify_falcon1024, InvalidSignature
+from falcon_det1024 import FalconSigner, InvalidSignature
 
 # Generate a keypair (OS RNG); pass seed=<32 bytes> for deterministic keygen.
 signer = FalconSigner.generate()
@@ -29,8 +29,9 @@ verifier = signer.verifying_key()
 verifier.verify(b"hello world", signature)      # returns None; raises on failure
 assert verifier.is_valid(b"hello world", signature)
 
-# Module-level one-shot verification:
-verify_falcon1024(b"hello world", signer.public_key, signature)
+# Low-level, C-mirroring API (raw bytes, no domain separation) lives in `bindings`:
+from falcon_det1024 import bindings
+bindings.verify_compressed(signer.public_key, b"hello world", signature)
 
 try:
     verifier.verify(b"tampered", signature)
@@ -55,14 +56,18 @@ except InvalidSignature:
 - `.is_valid(message, signature) -> bool`
 - `.public_key`
 
-### Module-level functions
+### `bindings`
 
-- `verify_falcon1024(message, public_key, signature) -> None`
-- `compressed_to_ct(signature) -> bytes`: convert a compressed signature to the fixed-length (1538 byte) CT serialization used for hashing and Merkle trees.
-- `salt_version(signature) -> int`: read the salt-version byte, which works on either format.
-- Advanced coefficient helpers: `pubkey_coeffs`, `hash_to_point_coeffs`, `s2_coeffs`, `s1_coeffs`. Each works over `N = 1024` coefficients.
+`falcon_det1024.bindings` is the low-level wrapper layer (in the spirit of `nacl.bindings`): each function maps 1:1 to a `falcon_det1024_*` C function with the prefix dropped, and operates on raw bytes with no domain separation.
 
-All buffer arguments accept any bytes-like object (`bytes`, `bytearray`, `memoryview`).
+- `sign_compressed(private_key, data) -> bytes`, `verify_compressed(public_key, data, signature) -> None`
+- `verify_ct(public_key, data, ct_signature) -> None`: verify a fixed-length (1538 byte) CT-format signature.
+- `convert_compressed_to_ct(signature) -> bytes`: convert a compressed signature to the fixed-length (1538 byte) CT serialization used for hashing and Merkle trees.
+- `get_salt_version(signature) -> int`: read the salt-version byte, which works on either format.
+- `keygen_from_seed(seed) -> (private_key, public_key)`, `keygen_from_system() -> (private_key, public_key)`.
+- Coefficient helpers: `pubkey_coeffs`, `hash_to_point_coeffs`, `s2_coeffs`, `s1_coeffs`. Each works over `N = 1024` coefficients.
+
+All buffer arguments (top-level and `bindings`) accept any bytes-like object (`bytes`, `bytearray`, `memoryview`).
 
 ### Constants
 

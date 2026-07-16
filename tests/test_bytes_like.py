@@ -35,11 +35,11 @@ def test_constructors_accept_bytes_like(signer: fp.FalconSigner) -> None:
 
 def test_helpers_accept_bytes_like(signer: fp.FalconSigner) -> None:
     sig = signer.sign(b"x")
-    ct = fp.compressed_to_ct(bytearray(sig))
-    assert fp.salt_version(bytearray(ct)) == fp.CURRENT_SALT_VERSION
-    assert len(fp.pubkey_coeffs(bytearray(signer.public_key))) == fp.N
-    assert len(fp.hash_to_point_coeffs(bytearray(b"x"))) == fp.N
-    assert len(fp.s2_coeffs(bytearray(ct))) == fp.N
+    ct = fp.bindings.convert_compressed_to_ct(bytearray(sig))
+    assert fp.bindings.get_salt_version(bytearray(ct)) == fp.CURRENT_SALT_VERSION
+    assert len(fp.bindings.pubkey_coeffs(bytearray(signer.public_key))) == fp.N
+    assert len(fp.bindings.hash_to_point_coeffs(bytearray(b"x"))) == fp.N
+    assert len(fp.bindings.s2_coeffs(bytearray(ct))) == fp.N
 
 
 def test_is_valid_never_raises_for_bytes_like_tamper(
