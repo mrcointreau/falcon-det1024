@@ -20,17 +20,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Lowest supported (abi3 floor) and latest, across the three platforms.
+        # The abi3 floor and a newer release, across the three platforms.
         os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.10", "3.13"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive # vendored Falcon C sources
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
@@ -38,19 +38,19 @@ jobs:
       - name: Sync (build the cffi extension and install dev deps)
         run: uv sync
 
-      - name: Run tests (roundtrip, determinism, tamper, CT, KATs)
+      - name: Run tests (roundtrip, determinism, tamper, surface, KATs)
         run: uv run pytest -q
 
   typecheck:
     name: mypy (strict)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
           persist-credentials: false
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           python-version: "3.12"
       - run: uv sync
@@ -62,13 +62,13 @@ jobs:
     name: cibuildwheel smoke (linux)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
           persist-credentials: false
       - name: Build and test the abi3 wheel
-        uses: pypa/cibuildwheel@v4.1
-      - uses: actions/upload-artifact@v4
+        uses: pypa/cibuildwheel@294735312765b09d24a2fbec22660ce817587d55 # v4.1.0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: wheel-smoke-linux
           path: ./wheelhouse/*.whl
