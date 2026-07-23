@@ -33,9 +33,9 @@ def _as_bytes(name: str, value: object) -> bytes:
     """Normalize a bytes-like argument to `bytes`.
 
     cffi accepts a `bytes` for a `const void *` parameter but rejects
-    `bytearray` and `memoryview`, so the conversion here lets the whole surface
-    accept any bytes-like object. `int` is rejected: `bytes(5)` would silently
-    produce a 5-byte zero buffer, which could pass a length check.
+    `bytearray` and `memoryview`, so the conversion here accepts those two as
+    well. `int` is rejected: `bytes(5)` would silently produce a 5-byte zero
+    buffer, which could pass a length check.
     """
     if isinstance(value, bytes):
         return value

@@ -1,5 +1,4 @@
-"""The API accepts any bytes-like object (bytes / bytearray / memoryview) and
-rejects non-bytes-like types cleanly (no silent zero-length-buffer footgun)."""
+"""Every entry point accepts bytes, bytearray or memoryview, and nothing else."""
 
 from __future__ import annotations
 
@@ -87,12 +86,11 @@ def test_is_valid_never_raises_for_bytes_like_tamper(
 
 @pytest.mark.parametrize("bad", [5, 2305, "string", None, 3.14, [0, 1, 2]])
 def test_non_bytes_like_rejected_with_typeerror(bad: object) -> None:
-    # An int must not silently become a zero-filled buffer of that length.
     with pytest.raises(TypeError):
         fp.FalconVerifier(bad)  # type: ignore[arg-type]
 
 
 def test_int_does_not_forge_a_zero_key() -> None:
-    # bytes(2305) would be a valid-length all-zero key; ensure it's rejected.
+    # bytes(2305) would be a valid-length all-zero key; ensure it is rejected.
     with pytest.raises(TypeError):
         fp.FalconSigner(2305)  # type: ignore[arg-type]

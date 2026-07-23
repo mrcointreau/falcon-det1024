@@ -8,7 +8,7 @@ In API mode the `cdef` declares values that the C compiler fills in. Size consta
 
 ## Public surface
 
-The package exposes `FalconSigner`, `FalconVerifier`, three size constants, and four exceptions. The cffi marshalling lives in the private `_bindings.py`, so a caller cannot reach a det1024 primitive except through the two classes. CT format, coefficient inspection, and salt-version reads stay unexposed; [ADR 0006](adr/0006-minimal-public-surface.md) records why.
+The package exposes `FalconSigner`, `FalconVerifier`, three size constants, and four exceptions. The cffi marshalling lives in the private `_bindings.py`, so the two classes are the only supported way to reach a det1024 primitive. CT format, coefficient inspection, and salt-version reads stay unexposed; [ADR 0006](adr/0006-minimal-public-surface.md) records why.
 
 `FalconSigner` takes only a private key and recomputes the public key via `falcon_make_public`, so a mismatched keypair cannot be constructed. That matters because an Algorand address derives from the public key: a signer holding an unrelated private key would produce signatures that can never authorize its own address, with no error until consensus rejects them.
 
@@ -29,4 +29,4 @@ setuptools auto-includes the 11 `.c` Extension sources but not the vendored head
 The project uses uv with a committed `uv.lock`, the Falcon C sources vendored as a git submodule pinned to a commit, python-semantic-release for versioning, PyPI OIDC trusted publishing, and pytest plus mypy. Two choices are worth calling out:
 
 - **CI tooling is not in the dev group.** cibuildwheel and python-semantic-release run via their official GitHub Actions (or `uvx` locally). Keeping them out of `[dependency-groups] dev` avoids constraining `requires-python`, since cibuildwheel needs Python >= 3.11. See [ADR 0004](adr/0004-cibuildwheel-over-handrolled-matrix.md).
-- **Release identity.** The release job pushes the version-bump commit with `GITHUB_TOKEN`. If `main` is protected, swap in a GitHub App token or admin PAT.
+- **Release identity.** The release job pushes the version-bump commit with a GitHub App token (`secrets.BOT_ID` / `secrets.BOT_SK`), so the built-in `GITHUB_TOKEN` stays read-only and no job needs `contents: write`.

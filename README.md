@@ -71,7 +71,7 @@ The same signer serves both preimage families the SDK produces: transactions (`"
 
 ### Key hygiene
 
-`sign` and `verify` operate on raw bytes with **no domain separation**: the message is signed verbatim. A key that signs arbitrary caller-supplied bytes can be made to sign a valid transaction preimage, so use one key for one protocol, and to reproduce a signature an application made over a structured object, sign the digest that application hashes to.
+`sign` and `verify` operate on raw bytes with **no domain separation**: the message is signed verbatim. A key that signs arbitrary caller-supplied bytes can be made to sign a valid transaction preimage, so use one key for one protocol. To reproduce a signature an application made over a structured object, sign the digest that application hashes to, not the object itself.
 
 ### Constants
 

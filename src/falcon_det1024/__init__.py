@@ -2,8 +2,8 @@
 post-quantum signature scheme.
 
 The surface is deliberately small: generate a keypair, sign, verify. The
-C-mirroring layer stays private, so the only way to reach a det1024 primitive is
-through `FalconSigner` or `FalconVerifier`.
+C-mirroring layer stays private, so the only supported way to reach a det1024
+primitive is through `FalconSigner` or `FalconVerifier`.
 
 Example
 -------

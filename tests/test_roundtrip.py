@@ -1,4 +1,4 @@
-"""Sign/verify roundtrip and public-surface behaviour."""
+"""Sign/verify roundtrip and signer/verifier behaviour."""
 
 from __future__ import annotations
 
