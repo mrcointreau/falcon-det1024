@@ -26,7 +26,8 @@ setuptools auto-includes the 11 `.c` Extension sources but not the vendored head
 
 ## Conventions
 
-The project uses uv with a committed `uv.lock`, the Falcon C sources vendored as a git submodule pinned to a commit, python-semantic-release for versioning, PyPI OIDC trusted publishing, and pytest plus mypy. Two choices are worth calling out:
+The project uses uv with a committed `uv.lock`, the Falcon C sources vendored as a git submodule pinned to a commit, python-semantic-release for versioning, PyPI OIDC trusted publishing, and pytest plus mypy. Three things are worth calling out:
 
 - **CI tooling is not in the dev group.** cibuildwheel and python-semantic-release run via their official GitHub Actions (or `uvx` locally). Keeping them out of `[dependency-groups] dev` avoids constraining `requires-python`, since cibuildwheel needs Python >= 3.11. See [ADR 0004](adr/0004-cibuildwheel-over-handrolled-matrix.md).
-- **Release identity.** The release job pushes the version-bump commit with a GitHub App token (`secrets.BOT_ID` / `secrets.BOT_SK`), so the built-in `GITHUB_TOKEN` stays read-only and no job needs `contents: write`.
+- **Release identity.** The release job pushes the version-bump commit with a GitHub App token (`secrets.BOT_ID` / `secrets.BOT_SK`), and the asset-upload job mints a second one narrowed to `permission-contents: write`. `permissions:` configures only the built-in `GITHUB_TOKEN`, which therefore stays read-only in every job.
+- **Release recovery.** If a job after `release` fails, use *Re-run failed jobs*. *Re-run all jobs* replays the pre-bump commit, so python-semantic-release finds the version already released and skips every downstream job: the run goes green having done nothing.
