@@ -8,7 +8,14 @@ import pytest
 
 import falcon_det1024 as fp
 
-MESSAGES = [b"", b"\x00", b"hello world", os.urandom(32), os.urandom(1024), b"\xff" * 4096]
+MESSAGES = [
+    b"",
+    b"\x00",
+    b"hello world",
+    os.urandom(32),
+    os.urandom(1024),
+    b"\xff" * 4096,
+]
 
 
 @pytest.mark.parametrize("message", MESSAGES)
@@ -19,16 +26,10 @@ def test_sign_verify_roundtrip(
     assert isinstance(sig, bytes)
     assert 2 <= len(sig) <= fp.COMPRESSED_SIG_MAX_SIZE
     assert sig[0] == (0x3A | 0x80)  # det1024 compressed header
-    assert fp.bindings.get_salt_version(sig) == fp.CURRENT_SALT_VERSION
-    # verify() returns None on success (does not raise)
+    assert sig[1] == 0  # salt version
+    # verify() returns None on success and raises on failure.
     assert verifier.verify(message, sig) is None
     assert verifier.is_valid(message, sig) is True
-
-
-@pytest.mark.parametrize("message", MESSAGES)
-def test_bindings_verify_compressed(signer: fp.FalconSigner, message: bytes) -> None:
-    sig = signer.sign(message)
-    assert fp.bindings.verify_compressed(signer.public_key, message, sig) is None
 
 
 def test_verifier_from_public_key(signer: fp.FalconSigner) -> None:
@@ -38,11 +39,27 @@ def test_verifier_from_public_key(signer: fp.FalconSigner) -> None:
     v.verify(msg, sig)
 
 
-def test_signer_reconstructed_from_keypair(signer: fp.FalconSigner) -> None:
-    rebuilt = fp.FalconSigner(signer.private_key, signer.public_key)
+def test_signer_reconstructed_from_private_key(signer: fp.FalconSigner) -> None:
+    # The constructor takes only the private key and recomputes the public one,
+    # so a signer cannot hold a public key that belongs to a different keypair.
+    rebuilt = fp.FalconSigner(signer.private_key)
     msg = b"same key, same signature"
     assert rebuilt.sign(msg) == signer.sign(msg)
     assert rebuilt.public_key == signer.public_key
+
+
+def test_signer_cannot_be_handed_a_public_key() -> None:
+    # The public key is derived, never supplied, so a signer holding a public
+    # key from a different keypair is unrepresentable: the constructor takes no
+    # second argument, positionally or by keyword.
+    a = fp.FalconSigner.generate(seed=b"keypair-a")
+    b = fp.FalconSigner.generate(seed=b"keypair-b")
+    with pytest.raises(TypeError):
+        fp.FalconSigner(a.private_key, b.public_key)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        fp.FalconSigner(  # type: ignore[call-arg]
+            a.private_key, public_key=b.public_key
+        )
 
 
 def test_verifier_equality_and_hash(signer: fp.FalconSigner) -> None:
@@ -55,7 +72,11 @@ def test_verifier_equality_and_hash(signer: fp.FalconSigner) -> None:
 
 
 def test_repr_hides_secret(signer: fp.FalconSigner) -> None:
-    # repr must not leak raw key material
+    # An exact match is required because a template that interpolated the key
+    # itself would still contain the word "bytes".
+    assert repr(signer) == f"FalconSigner(public_key=<{fp.PUBLIC_KEY_SIZE} bytes>)"
+    assert (
+        repr(signer.verifying_key())
+        == f"FalconVerifier(public_key=<{fp.PUBLIC_KEY_SIZE} bytes>)"
+    )
     assert signer.private_key.hex() not in repr(signer)
-    assert "bytes" in repr(signer)
-    assert "bytes" in repr(signer.verifying_key())

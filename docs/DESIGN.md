@@ -1,18 +1,24 @@
 # Design & binding reference
 
-How-it-works and reference notes for falcon-det1024. The significant decisions (why cffi API mode, why a single abi3 wheel, why free-threaded is deferred, why cibuildwheel) live as decision records under [adr/](adr/).
+How-it-works and reference notes for falcon-det1024. The significant, alternative-bearing decisions live as decision records under [adr/](adr/), which indexes them.
 
 ## The cdef forms
 
 In API mode the `cdef` declares values that the C compiler fills in. Size constants are declared as a macro name, a space, three dots, and no trailing semicolon: `#define FALCON_DET1024_PRIVKEY_SIZE ...`. A trailing `;` makes `ffi.cdef()` raise `CDefError`. The SHAKE context is declared as the partial struct `typedef struct { ...; } shake256_context;`, where the inner `...;` is the required "last field" marker; we do not redeclare `opaque_contents`, so the compiler computes `sizeof` (208 bytes). Both forms only work in API mode, since there is no compiler in ABI mode to resolve them.
 
+## Public surface
+
+The package exposes `FalconSigner`, `FalconVerifier`, three size constants, and four exceptions. The cffi marshalling lives in the private `_bindings.py`, so a caller cannot reach a det1024 primitive except through the two classes. CT format, coefficient inspection, and salt-version reads stay unexposed; [ADR 0006](adr/0006-minimal-public-surface.md) records why.
+
+`FalconSigner` takes only a private key and recomputes the public key via `falcon_make_public`, so a mismatched keypair cannot be constructed. That matters because an Algorand address derives from the public key: a signer holding an unrelated private key would produce signatures that can never authorize its own address, with no error until consensus rejects them.
+
 ## Memory safety: exact-length guards
 
-The det1024 functions take no length argument for their fixed-size buffers and do no bounds check, so `bindings.py` (the public low-level layer) enforces exact input lengths before every call as defence in depth. The lengths mirror what `deterministic.c` reads or writes. `falcon_det1024_keygen` writes 2305/1793 bytes unconditionally. `sign_compressed` reads the 2305-byte private key. `verify_compressed` and `verify_ct` read the 1793-byte public key, and `verify_ct` additionally reads a fixed 1538-byte signature with no length argument (via `resalt` over `SIG_CT_SIZE`). `s2_coeffs` likewise reads a fixed 1538 bytes. `get_salt_version` reads index 1. Every buffer argument is also normalized to `bytes` at the boundary (accepting `bytearray` and `memoryview`, rejecting `int` so `bytes(2305)` cannot forge a valid-length zero key).
+The det1024 functions take no length argument for their fixed-size buffers and do no bounds check, so `_bindings.py` enforces exact input lengths before every call as defence in depth. The lengths mirror what `deterministic.c` reads or writes. `falcon_det1024_keygen` writes 2305/1793 bytes unconditionally. `sign_compressed` reads the 2305-byte private key. `verify_compressed` reads the 1793-byte public key. Variable-length inputs (the message, the compressed signature, the seed) are passed with their length and validated by C. Every buffer argument is also normalized to `bytes` at the boundary (accepting `bytearray` and `memoryview`, rejecting `int` so `bytes(2305)` cannot forge a valid-length zero key).
 
 ## Deterministic build
 
-The bit-exact, emulated-FP build is what makes signatures identical across compilers and architectures, which consensus determinism requires. It falls out of compiling the vendored source set with no extra `-D` flags: the fork's `config.h` hard-defines `FALCON_FPEMU=1`, `FALCON_FPNATIVE=0`, `FALCON_AVX2=0`, `FALCON_FMA=0`, `FALCON_ASM_CORTEXM4=0`. `tests/test_kat.py` reproduces the upstream 512 compressed and 32 CT known-answer vectors byte-for-byte, so any regression in this configuration fails the suite immediately. See [ADR 0001](adr/0001-cffi-api-mode.md).
+The bit-exact, emulated-FP build is what makes signatures identical across compilers and architectures, which consensus determinism requires. It falls out of compiling the vendored source set with no extra `-D` flags: the fork's `config.h` hard-defines `FALCON_FPEMU=1`, `FALCON_FPNATIVE=0`, `FALCON_AVX2=0`, `FALCON_FMA=0`, `FALCON_ASM_CORTEXM4=0`. `tests/test_kat.py` reproduces the upstream 512 compressed and 32 CT known-answer vectors byte-for-byte, so any regression in this configuration fails the suite immediately. The CT vectors are reached through the private `_falcon` extension rather than the public API: CT is not part of the surface, but it is the strongest available check that the build is bit-exact. See [ADR 0001](adr/0001-cffi-api-mode.md).
 
 ## sdist
 

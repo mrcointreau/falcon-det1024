@@ -12,6 +12,10 @@ include README.md
 # Keep the cffi build script in the sdist.
 include src/falcon_det1024/_build.py
 
+# setuptools' sdist defaults pick up tests/test*.py but not conftest.py, where
+# every fixture lives, so the suite would ship unrunnable without this.
+recursive-include tests *.py
+
 # Exclude build and VCS artifacts.
 global-exclude *.pyc
 prune vendor/falcon/.git

@@ -5,23 +5,27 @@ from __future__ import annotations
 import pytest
 
 import falcon_det1024 as fp
+from falcon_det1024 import _bindings
 
 
 def test_exception_hierarchy() -> None:
-    for exc in (
-        fp.InvalidSignature,
-        fp.KeygenError,
-        fp.SigningError,
-        fp.ConversionError,
-    ):
+    for exc in (fp.InvalidSignature, fp.KeygenError, fp.SigningError):
         assert issubclass(exc, fp.FalconError)
     assert issubclass(fp.FalconError, Exception)
 
 
-@pytest.mark.parametrize("bad_seed", [b"", b"short", bytes(31), bytes(33), bytes(64)])
-def test_generate_rejects_wrong_seed_length(bad_seed: bytes) -> None:
+def test_generate_rejects_empty_seed() -> None:
+    # An empty seed must not silently fall back to randomness.
     with pytest.raises(ValueError):
-        fp.FalconSigner.generate(seed=bad_seed)
+        fp.FalconSigner.generate(seed=b"")
+
+
+@pytest.mark.parametrize("seed", [b"x", bytes(8), bytes(31), bytes(32), bytes(64)])
+def test_generate_accepts_any_non_empty_seed_length(seed: bytes) -> None:
+    # `shake256_init_prng_from_seed` takes the length explicitly and imposes
+    # no size of its own, so any seed a caller already holds stays reproducible.
+    signer = fp.FalconSigner.generate(seed=seed)
+    assert len(signer.public_key) == fp.PUBLIC_KEY_SIZE
 
 
 @pytest.mark.parametrize("bad_key", [b"", bytes(1792), bytes(1794)])
@@ -30,51 +34,37 @@ def test_verifier_rejects_wrong_public_key_length(bad_key: bytes) -> None:
         fp.FalconVerifier(bad_key)
 
 
-def test_signer_rejects_wrong_key_lengths(signer: fp.FalconSigner) -> None:
+@pytest.mark.parametrize("bad_key", [b"", bytes(2304), bytes(2306)])
+def test_signer_rejects_wrong_private_key_length(bad_key: bytes) -> None:
     with pytest.raises(ValueError):
-        fp.FalconSigner(bytes(2304), signer.public_key)
-    with pytest.raises(ValueError):
-        fp.FalconSigner(signer.private_key, bytes(1792))
+        fp.FalconSigner(bad_key)
 
 
-def test_verify_compressed_rejects_wrong_public_key_length(
-    signer: fp.FalconSigner,
-) -> None:
-    sig = signer.sign(b"x")
-    with pytest.raises(ValueError):
-        fp.bindings.verify_compressed(bytes(10), b"x", sig)
+def test_signer_rejects_undecodable_private_key() -> None:
+    # Right length, but not a valid encoded private key: an all-zero buffer
+    # fails the header-byte check before any polynomial is decoded.
+    with pytest.raises(fp.KeygenError):
+        fp.FalconSigner(bytes(fp.PRIVATE_KEY_SIZE))
 
 
-def test_get_salt_version_requires_two_bytes() -> None:
-    with pytest.raises(ValueError):
-        fp.bindings.get_salt_version(b"\x00")
+def test_bindings_enforce_key_lengths_before_calling_c() -> None:
+    # `sign_compressed` and `verify_compressed` pass their key straight to C,
+    # which takes no length argument for it, so these guards are what stand
+    # between a short buffer and an out-of-bounds read. The classes validate on
+    # construction, but nothing stops a caller reaching the module directly.
+    with pytest.raises(ValueError, match="private_key"):
+        _bindings.sign_compressed(bytes(10), b"m")
+    with pytest.raises(ValueError, match="public_key"):
+        _bindings.verify_compressed(bytes(10), b"m", b"\xba\x00")
 
 
-def test_pubkey_coeffs_rejects_wrong_length() -> None:
-    with pytest.raises(ValueError):
-        fp.bindings.pubkey_coeffs(bytes(10))
-
-
-def test_s1_coeffs_rejects_wrong_vector_length(signer: fp.FalconSigner) -> None:
-    good = fp.bindings.pubkey_coeffs(signer.public_key)
-    with pytest.raises(ValueError):
-        fp.bindings.s1_coeffs(good[:-1], good, good)
-
-
-def test_s1_coeffs_rejects_out_of_range_coefficient(signer: fp.FalconSigner) -> None:
-    h = fp.bindings.pubkey_coeffs(signer.public_key)
-    c = fp.bindings.hash_to_point_coeffs(b"x")
-    s2 = [0] * fp.N
-    # An out-of-range uint16 (h) raises ValueError, not OverflowError.
-    with pytest.raises(ValueError):
-        fp.bindings.s1_coeffs([70000, *h[1:]], c, s2)
-    # out-of-range int16 (s2)
-    with pytest.raises(ValueError):
-        fp.bindings.s1_coeffs(h, c, [40000, *s2[1:]])
-
-
-def test_hash_to_point_coeffs_rejects_bad_salt_version() -> None:
-    with pytest.raises(ValueError):
-        fp.bindings.hash_to_point_coeffs(b"x", salt_version=256)
-    with pytest.raises(ValueError):
-        fp.bindings.hash_to_point_coeffs(b"x", salt_version=-1)
+def test_signing_rejects_a_private_key_that_construction_accepts() -> None:
+    # `falcon_make_public` reads only f and g, at the front of the key; F
+    # occupies roughly the last 44% and is decoded only when signing. A key
+    # corrupted there constructs fine and fails at `sign`, which is the path
+    # that raises `SigningError`.
+    key = bytearray(fp.FalconSigner.generate(seed=b"corrupt-F").private_key)
+    key[-1] ^= 0x01
+    signer = fp.FalconSigner(bytes(key))
+    with pytest.raises(fp.SigningError):
+        signer.sign(b"message")

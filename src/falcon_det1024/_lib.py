@@ -9,9 +9,6 @@ from __future__ import annotations
 
 from typing import Any
 
-# Import the names directly from the compiled extension. The
-# `from . import _falcon` form does not resolve under mypy for a stub-only
-# C-extension submodule.
 from falcon_det1024._falcon import ffi as _ffi
 from falcon_det1024._falcon import lib as _lib
 

@@ -1,7 +1,7 @@
 """CFFI build script for falcon-det1024, using out-of-line API mode.
 
-Compiles the vendored Falcon C sources (see `SOURCES`) and exposes the
-deterministic det1024 API declared in `deterministic.h`.
+Compiles the vendored Falcon C sources (see `SOURCES`) and declares the subset
+of `deterministic.h` and `falcon.h` that the package and its tests reach.
 
 API mode (not ABI mode) is required for three reasons:
 
@@ -35,8 +35,9 @@ _REPO_ROOT = os.path.abspath(os.path.join(_HERE, os.pardir, os.pardir))
 _FALCON_DIR = os.path.join(_REPO_ROOT, "vendor", "falcon")
 
 # The vendored .c set compiled together. The deterministic layer is
-# `deterministic.c` at the repo root. The det1024 functions allocate their own
-# scratch on the stack, so no tmp buffer or `FALCON_TMPSIZE_*` is involved.
+# `deterministic.c` at the root of the vendored tree. The det1024 functions
+# allocate their own scratch on the stack; only `falcon_make_public` takes a
+# caller-supplied tmp buffer, sized by `FALCON_DET1024_TMPSIZE_MAKEPUB` below.
 SOURCES = [
     "codec.c",
     "common.c",
@@ -65,13 +66,9 @@ ffibuilder.cdef(
     /* --- SHAKE256 context and PRNG seeding (falcon.h) ---------------- */
     typedef struct { ...; } shake256_context;
 
-    void shake256_init(shake256_context *sc);
-    void shake256_inject(shake256_context *sc, const void *data, size_t len);
-    void shake256_flip(shake256_context *sc);
     void shake256_extract(shake256_context *sc, void *out, size_t len);
     void shake256_init_prng_from_seed(shake256_context *sc,
         const void *seed, size_t seed_len);
-    int shake256_init_prng_from_system(shake256_context *sc);
 
     /* --- Error codes (falcon.h) ------------------------------------- */
     #define FALCON_ERR_RANDOM ...
@@ -81,13 +78,16 @@ ffibuilder.cdef(
     #define FALCON_ERR_BADARG ...
     #define FALCON_ERR_INTERNAL ...
 
+    /* --- Public-key recomputation (falcon.h) ------------------------ */
+    #define FALCON_DET1024_TMPSIZE_MAKEPUB ...
+    int falcon_make_public(void *pubkey, size_t pubkey_len,
+        const void *privkey, size_t privkey_len, void *tmp, size_t tmp_len);
+
     /* --- det1024 sizes / constants (deterministic.h) ---------------- */
-    #define FALCON_DET1024_LOGN ...
     #define FALCON_DET1024_PUBKEY_SIZE ...
     #define FALCON_DET1024_PRIVKEY_SIZE ...
     #define FALCON_DET1024_SIG_COMPRESSED_MAXSIZE ...
     #define FALCON_DET1024_SIG_CT_SIZE ...
-    #define FALCON_DET1024_CURRENT_SALT_VERSION ...
 
     /* --- det1024 API (deterministic.h) ------------------------------ */
     int falcon_det1024_keygen(shake256_context *rng, void *privkey, void *pubkey);
@@ -95,18 +95,9 @@ ffibuilder.cdef(
         const void *privkey, const void *data, size_t data_len);
     int falcon_det1024_verify_compressed(const void *sig, size_t sig_len,
         const void *pubkey, const void *data, size_t data_len);
-    int falcon_det1024_verify_ct(const void *sig,
-        const void *pubkey, const void *data, size_t data_len);
     int falcon_det1024_convert_compressed_to_ct(void *sig_ct,
         const void *sig_compressed, size_t sig_compressed_len);
-    int falcon_det1024_get_salt_version(const void *sig);
-    int falcon_det1024_pubkey_coeffs(uint16_t *h, const void *pubkey);
-    void falcon_det1024_hash_to_point_coeffs(uint16_t *c, const void *data,
-        size_t data_len, uint8_t salt_version);
-    int falcon_det1024_s2_coeffs(int16_t *s2, const void *sig);
-    int falcon_det1024_s1_coeffs(int16_t *s1, const uint16_t *h,
-        const uint16_t *c, const int16_t *s2);
-    """
+"""
 )
 
 # setuptools requires Extension source and include paths to be relative to the
@@ -120,6 +111,12 @@ ffibuilder.set_source(
     r"""
     #include "falcon.h"
     #include "deterministic.h"
+
+    /* FALCON_TMPSIZE_MAKEPUB is function-like macro arithmetic over logn, and
+       a cdef cannot call it. Bind the n=1024 instantiation to a plain name so
+       the compiler resolves the scratch size for falcon_make_public(). */
+    #define FALCON_DET1024_TMPSIZE_MAKEPUB \
+        FALCON_TMPSIZE_MAKEPUB(FALCON_DET1024_LOGN)
     """,
     sources=_sources,
     include_dirs=_include_dirs,

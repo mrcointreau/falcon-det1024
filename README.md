@@ -4,6 +4,7 @@ Python bindings for the Algorand deterministic **Falcon** (`det1024`) post-quant
 
 - **Deterministic**: the same `(private key, message)` always produces a byte-identical signature (no nonce). This is what Algorand consensus requires.
 - **Bit-exact**: compiled with the emulated floating-point, no-SIMD configuration, so signatures are identical across compilers and CPU architectures. This is locked in by the upstream known-answer tests (KATs).
+- **Small surface**: generate, sign, verify. The C-mirroring layer is private, so there is no low-level API to misuse. See [ADR 0006](docs/adr/0006-minimal-public-surface.md).
 - **Typed**: ships `py.typed`, and the public surface is fully annotated.
 - **abi3 wheels**: one wheel per platform works on CPython 3.10+.
 
@@ -20,8 +21,7 @@ Prebuilt `cp310-abi3` wheels are published for Linux (x86_64/aarch64, manylinux 
 ```python
 from falcon_det1024 import FalconSigner, InvalidSignature
 
-# Generate a keypair (OS RNG); pass seed=<32 bytes> for deterministic keygen.
-signer = FalconSigner.generate()
+signer = FalconSigner.generate()          # or generate(seed) for deterministic keygen
 
 signature = signer.sign(b"hello world")   # deterministic, compressed format
 
@@ -29,22 +29,35 @@ verifier = signer.verifying_key()
 verifier.verify(b"hello world", signature)      # returns None; raises on failure
 assert verifier.is_valid(b"hello world", signature)
 
-# Low-level, C-mirroring API (raw bytes, no domain separation) lives in `bindings`:
-from falcon_det1024 import bindings
-bindings.verify_compressed(signer.public_key, b"hello world", signature)
-
 try:
     verifier.verify(b"tampered", signature)
 except InvalidSignature:
     print("rejected")
 ```
 
+## Using with py-algorand-sdk
+
+`py-algorand-sdk` has no Falcon dependency: its post-quantum signer takes a public key plus a callback that signs exact preimage bytes. `FalconSigner.sign` is that callback.
+
+```python
+from algosdk import mnemonic, constants
+from algosdk.signer import Falcon1024TransactionSigner
+from falcon_det1024 import FalconSigner
+
+seed = mnemonic.to_pq_seed(my_mnemonic, constants.falcon_1024_scheme)  # 32 bytes
+signer = FalconSigner.generate(seed)
+
+txn_signer = Falcon1024TransactionSigner(signer.public_key, signer.sign)
+```
+
+The same signer serves both preimage families the SDK produces: transactions (`"TX"` + msgpack) and delegated logic signatures (`"PQProgram"` + address + program).
+
 ## API
 
 ### `FalconSigner`
 
-- `FalconSigner.generate(seed: bytes | None = None) -> FalconSigner`: create a new keypair. `seed=None` uses the OS RNG. Otherwise `seed` must be exactly `SEED_SIZE` (32) bytes and deterministically derives the keypair.
-- `FalconSigner(private_key: bytes, public_key: bytes)`: reconstruct from stored key bytes.
+- `FalconSigner.generate(seed: bytes | None = None) -> FalconSigner`: create a new keypair. `seed=None` derives from a fresh 48-byte OS CSPRNG seed. Otherwise `seed` deterministically derives the keypair and may be any non-empty length. For Algorand accounts it is the 32 bytes `algosdk.mnemonic.to_pq_seed()` returns.
+- `FalconSigner(private_key: bytes)`: load from stored private key bytes. The public key is recomputed from the private key, so the two can never disagree.
 - `.sign(message: bytes) -> bytes`: deterministic compressed signature.
 - `.verifying_key() -> FalconVerifier`
 - `.private_key`, `.public_key`: raw `bytes`.
@@ -56,26 +69,17 @@ except InvalidSignature:
 - `.is_valid(message, signature) -> bool`
 - `.public_key`
 
-### `bindings`
+### Key hygiene
 
-`falcon_det1024.bindings` is the low-level wrapper layer (in the spirit of `nacl.bindings`): each function maps 1:1 to a `falcon_det1024_*` C function with the prefix dropped, and operates on raw bytes with no domain separation.
-
-- `sign_compressed(private_key, data) -> bytes`, `verify_compressed(public_key, data, signature) -> None`
-- `verify_ct(public_key, data, ct_signature) -> None`: verify a fixed-length (1538 byte) CT-format signature.
-- `convert_compressed_to_ct(signature) -> bytes`: convert a compressed signature to the fixed-length (1538 byte) CT serialization used for hashing and Merkle trees.
-- `get_salt_version(signature) -> int`: read the salt-version byte, which works on either format.
-- `keygen_from_seed(seed) -> (private_key, public_key)`, `keygen_from_system() -> (private_key, public_key)`.
-- Coefficient helpers: `pubkey_coeffs`, `hash_to_point_coeffs`, `s2_coeffs`, `s1_coeffs`. Each works over `N = 1024` coefficients.
-
-All buffer arguments (top-level and `bindings`) accept any bytes-like object (`bytes`, `bytearray`, `memoryview`).
+`sign` and `verify` operate on raw bytes with **no domain separation**: the message is signed verbatim. A key that signs arbitrary caller-supplied bytes can be made to sign a valid transaction preimage, so use one key for one protocol, and to reproduce a signature an application made over a structured object, sign the digest that application hashes to.
 
 ### Constants
 
-`PUBLIC_KEY_SIZE=1793`, `PRIVATE_KEY_SIZE=2305`, `COMPRESSED_SIG_MAX_SIZE=1423`, `CT_SIGNATURE_SIZE=1538`, `SEED_SIZE=32`, `CURRENT_SALT_VERSION=0`, `LOGN=10`, `N=1024`. The size constants are resolved from the C header macros at build time, so they can never drift from the vendored library.
+`PUBLIC_KEY_SIZE=1793`, `PRIVATE_KEY_SIZE=2305`, `COMPRESSED_SIG_MAX_SIZE=1423`. Resolved from the C header macros at build time, so they can never drift from the vendored library.
 
 ### Exceptions
 
-`FalconError` is the base class. `InvalidSignature`, `KeygenError`, `SigningError`, and `ConversionError` derive from it. Wrong argument *sizes* raise the built-in `ValueError`, and non bytes-like arguments raise `TypeError`.
+`FalconError` is the base class. `InvalidSignature`, `KeygenError`, and `SigningError` derive from it. Wrong argument *sizes* raise the built-in `ValueError`, and arguments of the wrong type raise `TypeError`.
 
 ## Development
 
@@ -85,7 +89,7 @@ Requires [uv](https://docs.astral.sh/uv/). The Falcon C sources are vendored as 
 git clone --recurse-submodules https://github.com/mrcointreau/falcon-det1024
 cd falcon-det1024
 uv sync                 # builds the cffi extension + installs dev deps
-uv run pytest           # roundtrip, determinism, tamper, CT, and 512+32 KATs
+uv run pytest           # roundtrip, determinism, tamper, surface, and 512+32 KATs
 uv run mypy             # strict
 ```
 
