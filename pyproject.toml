@@ -90,9 +90,9 @@ test-command = "pytest {project}/tests"
 
 # --------------------------------------------------------------------------- #
 # python-semantic-release (v10): conventional commits drive the version bump,
-# tag, changelog, and GitHub release. It performs no build (cibuildwheel builds
-# the wheels) and does not publish to PyPI (gh-action-pypi-publish does, via
-# OIDC).
+# tag, changelog, and GitHub release. It builds no distributions (cibuildwheel
+# builds the wheels; build_command only re-locks uv.lock) and does not publish
+# to PyPI (gh-action-pypi-publish does, via OIDC).
 # --------------------------------------------------------------------------- #
 [tool.semantic_release]
 tag_format = "v{version}"
@@ -107,7 +107,15 @@ major_on_zero = false
 version_toml = ["pyproject.toml:project.version"]
 # Update the __version__ string in the package with a regex replace.
 version_variables = ["src/falcon_det1024/__init__.py:__version__"]
-# build_command is omitted, so python-semantic-release runs no build.
+# The version bump rewrites pyproject.toml, which leaves uv.lock recording the
+# previous version. build_command runs after the source files are rewritten and
+# before the commit, and `git add` stages the result into the bump commit, so the
+# lock never lands stale on main. `--python python3 --no-python-downloads` avoids
+# fetching a managed interpreter; resolution is universal, so the lock is
+# identical either way.
+# Not `assets = ["uv.lock"]`: that list is also passed to `create_release()`,
+# which would attach uv.lock to every GitHub Release.
+build_command = "pip install uv && uv lock --python python3 --no-python-downloads && git add uv.lock"
 
 [tool.semantic_release.remote]
 type = "github"
