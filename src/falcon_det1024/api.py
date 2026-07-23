@@ -1,21 +1,19 @@
-"""Idiomatic Falcon deterministic (det1024) signing API.
+"""Deterministic Falcon (det1024) signing API.
 
-The primary path is compressed-format sign/verify, which is deterministic:
-the same `(private key, message)` always yields a byte-identical signature.
+Signatures are compressed-format and deterministic: the same
+`(private key, message)` always yields byte-identical output.
 
 Both `sign` and `verify` operate on the raw `message` bytes with no domain
 separation. To reproduce a signature that an application (e.g. go-algorand)
 produced over a structured object, sign the digest that application hashes to,
-not the object itself.
-
-The C-mirroring low-level surface (CT conversion, coefficient helpers, the raw
-`*_compressed` / `*_ct` functions) lives in `falcon_det1024.bindings`.
+not the object itself. A key used to sign arbitrary caller-supplied bytes can be
+made to sign a valid transaction preimage, so use one key for one protocol.
 """
 
 from __future__ import annotations
 
-from . import bindings
-from .constants import PRIVATE_KEY_SIZE, PUBLIC_KEY_SIZE
+from . import _bindings
+from .constants import PUBLIC_KEY_SIZE
 from .exceptions import InvalidSignature
 
 
@@ -25,12 +23,8 @@ class FalconVerifier:
     __slots__ = ("_public_key",)
 
     def __init__(self, public_key: bytes) -> None:
-        public_key = bindings._as_bytes("public_key", public_key)
-        if len(public_key) != PUBLIC_KEY_SIZE:
-            raise ValueError(
-                f"public_key must be exactly {PUBLIC_KEY_SIZE} bytes, "
-                f"got {len(public_key)}"
-            )
+        public_key = _bindings._as_bytes("public_key", public_key)
+        _bindings._check_len("public_key", public_key, PUBLIC_KEY_SIZE)
         self._public_key = public_key
 
     @property
@@ -44,7 +38,7 @@ class FalconVerifier:
         Return `None` on success and raise `InvalidSignature` on failure. No
         domain separation is applied; `message` is verified verbatim.
         """
-        bindings.verify_compressed(self._public_key, message, signature)
+        _bindings.verify_compressed(self._public_key, message, signature)
 
     def is_valid(self, message: bytes, signature: bytes) -> bool:
         """Return `True` if `signature` is valid for `message`."""
@@ -67,41 +61,35 @@ class FalconVerifier:
 
 
 class FalconSigner:
-    """Holds a det1024 keypair and produces deterministic compressed signatures."""
+    """Holds a det1024 keypair and produces deterministic compressed signatures.
+
+    The public key is always recomputed from the private key, so the two can
+    never disagree.
+    """
 
     __slots__ = ("_private_key", "_public_key")
 
-    def __init__(self, private_key: bytes, public_key: bytes) -> None:
-        private_key = bindings._as_bytes("private_key", private_key)
-        public_key = bindings._as_bytes("public_key", public_key)
-        if len(private_key) != PRIVATE_KEY_SIZE:
-            raise ValueError(
-                f"private_key must be exactly {PRIVATE_KEY_SIZE} bytes, "
-                f"got {len(private_key)}"
-            )
-        if len(public_key) != PUBLIC_KEY_SIZE:
-            raise ValueError(
-                f"public_key must be exactly {PUBLIC_KEY_SIZE} bytes, "
-                f"got {len(public_key)}"
-            )
-        self._private_key = private_key
-        self._public_key = public_key
+    def __init__(self, private_key: bytes) -> None:
+        """Load a signer from stored private key bytes."""
+        # Normalize first, then derive from the stored copy: a caller-supplied
+        # bytearray could otherwise be mutated between the two reads, pairing a
+        # public key with a private key it was not derived from.
+        self._private_key = _bindings._as_bytes("private_key", private_key)
+        # `falcon_make_public` decodes the f and g halves, so the public key
+        # it returns always matches them. It does not read the trailing F data;
+        # a key malformed only there is rejected by `sign`.
+        self._public_key = _bindings.public_key_from_private(self._private_key)
 
     @classmethod
     def generate(cls, seed: bytes | None = None) -> FalconSigner:
         """Create a new signer.
 
-        With `seed=None` the keypair is seeded from the operating system RNG.
-        Otherwise `seed` must be exactly `SEED_SIZE` (32) bytes and
-        deterministically derives the keypair.
+        With `seed=None` the keypair is derived from a fresh 48-byte seed taken
+        from the OS CSPRNG. Otherwise `seed` deterministically derives the
+        keypair and may be any non-empty length. For Algorand accounts it is the
+        32 bytes that `algosdk.mnemonic.to_pq_seed()` returns.
         """
-        if seed is None:
-            private_key, public_key = bindings.keygen_from_system()
-        else:
-            # keygen_from_seed normalizes bytes-like input and enforces the
-            # exact SEED_SIZE, raising ValueError on a wrong length.
-            private_key, public_key = bindings.keygen_from_seed(seed)
-        return cls(private_key, public_key)
+        return cls(_bindings.keygen(seed))
 
     @property
     def private_key(self) -> bytes:
@@ -120,7 +108,7 @@ class FalconSigner:
         signature an application made over a structured object, sign the digest
         that application hashes to, not the object itself.
         """
-        return bindings.sign_compressed(self._private_key, message)
+        return _bindings.sign_compressed(self._private_key, message)
 
     def verifying_key(self) -> FalconVerifier:
         """Return a `FalconVerifier` for this signer's public key."""

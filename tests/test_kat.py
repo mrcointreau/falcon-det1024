@@ -10,11 +10,14 @@ The procedure follows `vendor/falcon/tests/test_deterministic.c`. For each index
   - the message is `i` bytes squeezed from a SHAKE256 PRNG seeded with the ASCII
     string `"msg-%04d" % i`;
   - the keypair is generated from a SHAKE256 PRNG seeded with `"key-%04d" % i`;
-  - `sign_compressed` must reproduce `FALCON_DET1024_KAT[i]`;
-  - `bindings.convert_compressed_to_ct` must reproduce `FALCON_DET1024_KAT_CT[i]`.
+  - `FalconSigner.sign` must reproduce `FALCON_DET1024_KAT[i]`;
+  - the CT conversion must reproduce `FALCON_DET1024_KAT_CT[i]`.
 
-The KAT seeds are 8 bytes (not the public 32-byte seed), so keygen and message
-generation use the low-level `_falcon` shake primitives directly.
+Message generation and CT conversion are not part of the public API, so they go
+through the private `_falcon` extension directly; keygen does too, so that the
+public key it writes can be checked against `falcon_make_public`. The CT vectors
+are worth covering even though CT is not surfaced: they are the strongest
+available check that the build is bit-exact.
 """
 
 from __future__ import annotations
@@ -102,6 +105,14 @@ def _keypair(i: int) -> tuple[bytes, bytes]:
     )
 
 
+def _to_ct(sig: bytes) -> bytes:
+    size = int(_lib.FALCON_DET1024_SIG_CT_SIZE)
+    out = _ffi.new("uint8_t[]", size)
+    rc = int(_lib.falcon_det1024_convert_compressed_to_ct(out, sig, len(sig)))
+    assert rc == 0, f"CT conversion failed: rc={rc}"
+    return bytes(_ffi.buffer(out, size))
+
+
 def test_kat_counts() -> None:
     assert len(_KAT) == NUM_KATS
     assert len(_KAT_CT) == NUM_KATS_CT
@@ -112,10 +123,13 @@ def test_kat_compressed_signatures() -> None:
     for i in range(NUM_KATS):
         message = _message(i)
         priv, pub = _keypair(i)
-        signer = fp.FalconSigner(priv, pub)
+        signer = fp.FalconSigner(priv)
+        # `falcon_make_public` must agree with what `falcon_det1024_keygen`
+        # wrote, for all 512 keypairs.
+        assert signer.public_key == pub, f"derived public key mismatch at index {i}"
         sig = signer.sign(message)
         assert sig.hex() == _KAT[i], f"compressed KAT mismatch at index {i}"
-        # sanity: the reproduced signature also verifies
+        # The reproduced signature must also verify.
         signer.verifying_key().verify(message, sig)
 
 
@@ -123,7 +137,6 @@ def test_kat_ct_signatures() -> None:
     """The first 32 CT KATs reproduce byte-exactly."""
     for i in range(NUM_KATS_CT):
         message = _message(i)
-        priv, pub = _keypair(i)
-        sig = fp.FalconSigner(priv, pub).sign(message)
-        ct = fp.bindings.convert_compressed_to_ct(sig)
-        assert ct.hex() == _KAT_CT[i], f"CT KAT mismatch at index {i}"
+        priv, _pub = _keypair(i)
+        sig = fp.FalconSigner(priv).sign(message)
+        assert _to_ct(sig).hex() == _KAT_CT[i], f"CT KAT mismatch at index {i}"

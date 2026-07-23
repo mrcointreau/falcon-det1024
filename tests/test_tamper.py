@@ -43,6 +43,18 @@ def test_truncated_signature_rejected(verifier: fp.FalconVerifier, sig: bytes) -
         verifier.verify(MSG, sig[:-1])  # truncated body
 
 
+@pytest.mark.parametrize("length", [0, 1])
+def test_signature_below_header_size_is_rejected_by_c(
+    verifier: fp.FalconVerifier, sig: bytes, length: int
+) -> None:
+    # A signature too short to hold the header byte is handed straight to
+    # `falcon_det1024_verify_compressed`, whose own `sig_len < 2` branch returns
+    # BADSIG before dereferencing `sig[0]`. Matching on the error code is what
+    # shows the rejection came from C rather than a Python pre-check.
+    with pytest.raises(fp.InvalidSignature, match="FALCON_ERR_BADSIG"):
+        verifier.verify(MSG, sig[:length])
+
+
 def test_corrupted_header_rejected(verifier: fp.FalconVerifier, sig: bytes) -> None:
     bad = bytearray(sig)
     bad[0] = 0x00  # wrong header byte

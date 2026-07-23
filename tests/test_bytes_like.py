@@ -1,11 +1,11 @@
-"""The API accepts any bytes-like object (bytes / bytearray / memoryview) and
-rejects non-bytes-like types cleanly (no silent zero-length-buffer footgun)."""
+"""Every entry point accepts bytes, bytearray or memoryview, and nothing else."""
 
 from __future__ import annotations
 
 import pytest
 
 import falcon_det1024 as fp
+from falcon_det1024 import _bindings
 
 
 def test_sign_and_verify_accept_bytes_like(
@@ -29,17 +29,50 @@ def test_generate_accepts_bytes_like_seed() -> None:
 def test_constructors_accept_bytes_like(signer: fp.FalconSigner) -> None:
     v = fp.FalconVerifier(bytearray(signer.public_key))
     assert v.public_key == signer.public_key
-    s = fp.FalconSigner(bytearray(signer.private_key), memoryview(signer.public_key))
+    s = fp.FalconSigner(bytearray(signer.private_key))
     assert s.public_key == signer.public_key
+    assert fp.FalconSigner(memoryview(signer.private_key)).public_key == v.public_key
 
 
-def test_helpers_accept_bytes_like(signer: fp.FalconSigner) -> None:
-    sig = signer.sign(b"x")
-    ct = fp.bindings.convert_compressed_to_ct(bytearray(sig))
-    assert fp.bindings.get_salt_version(bytearray(ct)) == fp.CURRENT_SALT_VERSION
-    assert len(fp.bindings.pubkey_coeffs(bytearray(signer.public_key))) == fp.N
-    assert len(fp.bindings.hash_to_point_coeffs(bytearray(b"x"))) == fp.N
-    assert len(fp.bindings.s2_coeffs(bytearray(ct))) == fp.N
+def test_constructor_stores_the_key_the_public_key_was_derived_from(
+    signer: fp.FalconSigner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Accepting a bytearray means the caller can still write to it. Stand in for
+    # a concurrent writer by overwriting the buffer the moment the public key
+    # has been read out of it: the signer must keep the key it derived from,
+    # never the one substituted behind its back.
+    derive = _bindings.public_key_from_private
+    theirs = fp.FalconSigner.generate(seed=b"substituted").private_key
+    buf = bytearray(signer.private_key)
+    derivations: list[bytes] = []
+
+    def derive_then_overwrite(private_key: bytes) -> bytes:
+        public_key = derive(private_key)
+        derivations.append(public_key)
+        buf[:] = theirs
+        return public_key
+
+    monkeypatch.setattr(_bindings, "public_key_from_private", derive_then_overwrite)
+    rebuilt = fp.FalconSigner(buf)
+
+    assert len(derivations) == 1, "the constructor must derive the key it stores"
+    assert rebuilt.private_key == signer.private_key
+    assert rebuilt.public_key == derive(rebuilt.private_key)
+
+
+@pytest.mark.parametrize("name", ["seed", "message", "signature"])
+def test_int_is_rejected_at_every_entry_point(
+    signer: fp.FalconSigner, verifier: fp.FalconVerifier, name: str
+) -> None:
+    # bytes(5) would silently become five zero bytes, so `generate(seed=5)`
+    # must not quietly derive a key from a five-byte zero seed.
+    with pytest.raises(TypeError, match=name):
+        if name == "seed":
+            fp.FalconSigner.generate(seed=5)  # type: ignore[arg-type]
+        elif name == "message":
+            signer.sign(5)  # type: ignore[arg-type]
+        else:
+            verifier.verify(b"m", 5)  # type: ignore[arg-type]
 
 
 def test_is_valid_never_raises_for_bytes_like_tamper(
@@ -53,12 +86,11 @@ def test_is_valid_never_raises_for_bytes_like_tamper(
 
 @pytest.mark.parametrize("bad", [5, 2305, "string", None, 3.14, [0, 1, 2]])
 def test_non_bytes_like_rejected_with_typeerror(bad: object) -> None:
-    # An int must not silently become a zero-filled buffer of that length.
     with pytest.raises(TypeError):
         fp.FalconVerifier(bad)  # type: ignore[arg-type]
 
 
 def test_int_does_not_forge_a_zero_key() -> None:
-    # bytes(2305) would be a valid-length all-zero key; ensure it's rejected.
+    # bytes(2305) would be a valid-length all-zero key; ensure it is rejected.
     with pytest.raises(TypeError):
-        fp.FalconSigner(2305, 1793)  # type: ignore[arg-type]
+        fp.FalconSigner(2305)  # type: ignore[arg-type]
