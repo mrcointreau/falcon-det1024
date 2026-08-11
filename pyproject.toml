@@ -4,7 +4,7 @@
 # auto-manages Py_LIMITED_API (abi3 on normal CPython, off on free-threaded
 # below 3.15, abi3t on 3.15 and later). The floor matches the runtime dep so
 # the building and importing `_cffi_backend` agree.
-requires = ["setuptools>=77", "cffi>=2.0.0"]
+requires = ["setuptools>=77", "cffi>=2.1.1"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -31,7 +31,7 @@ classifiers = [
 # cffi's backend is version-specific (abi3 collapses the build matrix, but cffi
 # stays a per-Python runtime dep that pip resolves). The floor matches the build
 # floor above.
-dependencies = ["cffi>=2.0.0"]
+dependencies = ["cffi>=2.1.1"]
 
 [project.urls]
 Homepage = "https://github.com/mrcointreau/falcon-det1024"
@@ -61,7 +61,7 @@ temp_falcon = ["py.typed", "*.pyi"]
 # pypa/cibuildwheel action (or `uvx cibuildwheel` locally) and cut releases with
 # the python-semantic-release action (or `uvx python-semantic-release` locally).
 dev = [
-    "cffi>=2.0.0",
+    "cffi>=2.1.1",
     "pytest>=8.0",
     "mypy>=1.10",
     "ruff>=0.9",
